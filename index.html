@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Share your feedback</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+         background: #f3f4f6; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #111827; }
+  .card { width: 100%; max-width: 420px; margin: 16px; padding: 28px 22px; background: #fff;
+          border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,.08); text-align: center; }
+  h1 { font-size: 1.5rem; margin: 0 0 6px; }
+  .sub { color: #6b7280; margin: 0 0 18px; }
+  .stars { display: flex; justify-content: center; gap: 6px; margin-bottom: 18px; }
+  .stars button { background: none; border: none; font-size: 2.6rem; line-height: 1; cursor: pointer;
+                  color: #d1d5db; padding: 2px; }
+  .stars button.on { color: #f59e0b; }
+  textarea { width: 100%; min-height: 110px; padding: 12px; font: inherit; border: 1px solid #d1d5db;
+             border-radius: 10px; resize: vertical; margin-bottom: 14px; }
+  .btn, button.primary { display: block; width: 100%; padding: 14px; font: inherit; font-weight: 600;
+        color: #fff; background: #2563eb; border: none; border-radius: 10px; cursor: pointer; text-decoration: none; }
+  button.primary:disabled { background: #9ca3af; cursor: not-allowed; }
+  .error { color: #b91c1c; min-height: 1.2em; margin: 10px 0 0; }
+  .hint { color: #6b7280; font-size: .9rem; margin-top: 12px; }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1 id="shopName">Loading…</h1>
+
+  <section id="formView" hidden>
+    <p class="sub">How was your experience?</p>
+    <div class="stars" id="stars" role="group" aria-label="Rating"></div>
+    <textarea id="comment" maxlength="1000" placeholder="Tell us more (optional)"></textarea>
+    <button id="submitBtn" class="primary" disabled>Submit</button>
+    <p id="error" class="error"></p>
+  </section>
+
+  <section id="doneView" hidden>
+    <p class="sub">Thank you for your feedback!</p>
+    <p>Would you also like to share it on Google? It helps other customers find this shop.</p>
+    <a id="googleBtn" class="btn" target="_blank" rel="noopener">Post on Google</a>
+    <p id="copyHint" class="hint"></p>
+  </section>
+
+  <p id="notFound" hidden>This card is not set up yet.</p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  // 1) PASTE YOUR VALUES from Supabase: Project Settings -> API
+  const SUPABASE_URL = "https://zcshaeytogchzmvbragv.supabase.co";
+  const SUPABASE_ANON_KEY = "your-publishable-or-anon-key";
+
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const $ = (id) => document.getElementById(id);
+
+  // Shop code comes from /r/shop123  (or ?shop=shop123 when testing locally)
+  const code = (location.pathname.match(/^\/r\/([^\/]+)/) || [])[1]
+            || new URLSearchParams(location.search).get("shop");
+  let shop = null;
+  let rating = 0;
+
+  function renderStars() {
+    const box = $("stars");
+    box.innerHTML = "";
+    for (let i = 1; i <= 5; i++) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = "★";
+      b.className = i <= rating ? "on" : "";
+      b.setAttribute("aria-label", i + (i === 1 ? " star" : " stars"));
+      b.onclick = () => { rating = i; renderStars(); $("submitBtn").disabled = false; };
+      box.appendChild(b);
+    }
+  }
+
+  function showNotFound() {
+    $("shopName").textContent = "Oops";
+    $("notFound").hidden = false;
+  }
+
+  async function init() {
+    if (!code) return showNotFound();
+    const { data, error } = await db.rpc("get_shop", { shop_code: code });
+    if (error || !data || !data.length) return showNotFound();
+    shop = data[0];
+    $("shopName").textContent = shop.name;   // textContent = safe from script injection
+    document.title = shop.name;
+    $("formView").hidden = false;
+    renderStars();
+    db.from("taps").insert({ shop_id: shop.id }).then(() => {}); // count this tap
+  }
+
+  $("submitBtn").onclick = async () => {
+    $("submitBtn").disabled = true;
+    $("error").textContent = "";
+    const comment = $("comment").value.trim();
+    const { error } = await db.from("feedback")
+      .insert({ shop_id: shop.id, stars: rating, comment: comment || null });
+    if (error) {
+      $("error").textContent = "Could not save. Please try again.";
+      $("submitBtn").disabled = false;
+      return;
+    }
+    $("formView").hidden = true;
+    $("doneView").hidden = false;
+    $("googleBtn").href = shop.google_review_link;   // shown to EVERY customer, any rating
+    $("googleBtn").onclick = () => {
+      if (comment && navigator.clipboard) {
+        navigator.clipboard.writeText(comment).catch(() => {});
+        $("copyHint").textContent = "Your comment is copied. Paste it into the Google box.";
+      }
+    };
+  };
+
+  init();
+</script>
+</body>
+</html>
